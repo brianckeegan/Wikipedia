@@ -24,24 +24,39 @@ from datetime import datetime, timedelta
 # From http://stackoverflow.com/questions/4028697/how-do-i-download-a-zip-file-in-python-using-urllib2/4028728
 def get_file(url,filepath,md5_dict):
     # Open the url
-    try:
-        f = urllib2.urlopen(url)
-        #print "downloading " + url
+    if len(md5_dict.keys()) > 0: #sometimes there's no hash file (eg, December 2008)
+        try:
+            f = urllib2.urlopen(url)
 
-        # Open our local file for writing
-        with open(filepath+os.path.basename(url), "wb") as local_file:
-            read_file = f.read()
-            file_md5 = hashlib.md5(read_file).hexdigest()
-            if file_md5 == md5_dict[os.path.basename(url)]:
+            # Open our local file for writing
+            with open(filepath+os.path.basename(url), "wb") as local_file:
+                read_file = f.read()
+                file_md5 = hashlib.md5(read_file).hexdigest()
+                if file_md5 == md5_dict[os.path.basename(url)]:
+                    local_file.write(read_file)
+                else:
+                    raise ValueError('MD5 checksum on {0} does not match master.'.format(os.path.basename(url)))
+
+        #handle errors
+        except urllib2.HTTPError, e:
+            print "HTTP Error:", e.code, url
+        except urllib2.URLError, e:
+            print "URL Error:", e.reason, url
+    else:
+        print "No hashes found, proceeding without checking hashes!"
+        try:
+            f = urllib2.urlopen(url)
+
+            # Open our local file for writing
+            with open(filepath+os.path.basename(url), "wb") as local_file:
+                read_file = f.read()
                 local_file.write(read_file)
-            else:
-                raise ValueError('MD5 checksum on {0} does not match master.'.format(os.path.basename(url)))
 
-    #handle errors
-    except urllib2.HTTPError, e:
-        print "HTTP Error:", e.code, url
-    except urllib2.URLError, e:
-        print "URL Error:", e.reason, url
+        #handle errors
+        except urllib2.HTTPError, e:
+            print "HTTP Error:", e.code, url
+        except urllib2.URLError, e:
+            print "URL Error:", e.reason, url
 
 def get_dumps(start,end,datapath=os.getcwd()+'/Data/'):
     start_dt = datetime.strptime(start,'%Y%m%d')
