@@ -3,9 +3,9 @@
 #!/usr/bin/env python
 
 '''
-get_pageview_by_day.py - batch download wiki pageview history
-    Usage: python get_pageview_by_day.py -s <yyyymmdd> -e <yyyymmdd> -d <datapath>
-    E.g.   python get_pageview_by_day.py -s 20130410 -e 20130417 -d /Data/
+pageview-scraper.py - batch download wiki pageview history
+    Usage: python pageview-scraper.py -s <yyyymmdd> -e <yyyymmdd> -d <datapath>
+    E.g.   python pageview-scraper.py -s 20130410 -e 20130417 -d /Data/
     The parameters will be set as default if not given.
     
 @author: Brian Keegan and Yu-Ru Lin 
