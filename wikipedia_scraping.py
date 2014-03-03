@@ -282,7 +282,7 @@ def get_page_revisions(article_title,dt_start,dt_end,lang):
             include all properties as described by revision_properties, and will also include the
             title and id of the source article. 
     '''
-    article_title = rename_on_redirect(article_title)
+    article_title = rename_on_redirect(article_title,lang=lang)
     dt_start_string = convert_from_datetime(dt_start)
     dt_end_string = convert_from_datetime(dt_end) 
     revisions = list()
@@ -302,6 +302,7 @@ def get_page_revisions(article_title,dt_start,dt_end,lang):
                         revision['pageid'] = page_number
                         revision['title'] = result['pages'][page_number]['title']
                         # Sometimes the size key is not present, so we'll set it to 0 in those cases
+                        revision['username'] = revision['user']
                         revision['size'] = revision.get('size', 0)
                         revision['timestamp'] = convert_to_datetime(revision['timestamp'])
                         revisions.append(revision)
@@ -343,7 +344,7 @@ def get_page_content(page_title,dt_start,dt_end,lang):
             a dictionary of revision attributes. These attributes include all properties as described 
             by revision_properties, and will also include the title and id of the source article. 
     '''
-    page_title = rename_on_redirect(page_title)
+    page_title = rename_on_redirect(page_title,lang=lang)
     dt_start_string = convert_from_datetime(dt_start)
     dt_end_string = convert_from_datetime(dt_end)
     revisions_dict = dict()
@@ -368,7 +369,6 @@ def get_page_content(page_title,dt_start,dt_end,lang):
                 rev['content'] = revision.get('*',unicode()) # Sometimes content hidden, return with empty unicode string
                 rev['links'] = link_finder(rev['content'])
                 rev['username'] = revision['user']
-                rev['userid'] = revision['userid']
                 rev['revid'] = revision['revid']
                 revisions_dict[revision['revid']] = rev
         except KeyError:
@@ -448,7 +448,7 @@ def get_page_categories(page_title,lang='en'):
     Output:
     categories - A list of the names of the categories of which the page is a member
     '''
-    page_title = rename_on_redirect(page_title)
+    page_title = rename_on_redirect(page_title,lang=lang)
     results = wikipedia_query({'prop': 'categories',
                                    'titles': page_title,
                                    'cllimit': '500',
@@ -525,7 +525,7 @@ def get_page_outlinks(page_title,lang='en'):
     '''
     # This approach is susceptible to 'overlinking' as it includes links from templates
     page_title = cast_to_unicode(page_title)
-    page_title = rename_on_redirect(page_title)
+    page_title = rename_on_redirect(page_title,lang=lang)
     result = wikipedia_query({'titles': page_title,
                                   'prop': 'links',
                                   'pllimit': '500',
@@ -549,7 +549,7 @@ def get_page_inlinks(page_title,lang='en'):
     inlinks - A list of all "alter" pages that link in to the current version of the "ego" page
     '''
     page_title = cast_to_unicode(page_title)
-    page_title = rename_on_redirect(page_title)
+    page_title = rename_on_redirect(page_title,lang=lang)
     result = wikipedia_query({'bltitle': page_title,
                                   'list': 'backlinks',
                                   'bllimit': '500',
@@ -575,7 +575,7 @@ def get_page_templates(page_title,lang):
     templates - A list of all the templates (which contain redundant links) in the current version
     '''
     page_title = cast_to_unicode(page_title)
-    page_title = rename_on_redirect(page_title)
+    page_title = rename_on_redirect(page_title,lang=lang)
     result = wikipedia_query({'titles': page_title,
                                   'prop': 'templates',
                                   'tllimit': '500',
@@ -637,7 +637,7 @@ def get_page_outlinks_from_content(page_title,lang='en'):
     This uses regular expressions to coarsely parse the content for instances of [[links]] and may be messy
     '''
     page_title = cast_to_unicode(page_title)
-    page_title = rename_on_redirect(page_title)
+    page_title = rename_on_redirect(page_title,lang=lang)
     
     # Get content from most recent revision of an article
     result = short_wikipedia_query({'titles': page_title,
@@ -854,7 +854,7 @@ def clean_timestamps(df):
     return df2
 
 def get_pageviews(article,lang,min_date,max_date):
-    article = rename_on_redirect(article)
+    article = rename_on_redirect(article,lang=lang)
     rng = pd.date_range(min_date,max_date,freq='M')
     rng2 = [(i.month,i.year) for i in rng]
     ts = pd.Series()
@@ -949,6 +949,23 @@ def word_counter(revisions,min_date,max_date):
     ts = ts.reindex(pd.date_range(np.min(list(ts.index)),np.max(list(ts.index))))
     ts = ts.fillna(method='ffill')
     return ts[min_date:max_date]
+    
+def user_counter(revisions,min_date,max_date):
+    dd = dict()
+    dd2 = dict()
+    for r in revisions:
+        d = r['timestamp'].date()
+        try:
+            dd[d].append(r['unique_users_count'])
+        except KeyError:
+            dd[d] = [r['unique_users_count']]
+    for k,v in dd.items():
+        dd2[k] = np.max(v)
+    di = [datetime.datetime.combine(i,datetime.time()) for i in dd2.keys()]
+    ts = pd.TimeSeries(dd2.values(),index=di)
+    ts = ts.reindex(pd.date_range(np.min(list(ts.index)),np.max(list(ts.index))))
+    ts = ts.fillna(method='ffill')
+    return ts[min_date:max_date]
 
 talk_dict = {'en':u"Talk:",'pt':"Discussão:".decode('utf-8'),'es':"Discusión:".decode('utf-8')}
 
@@ -964,22 +981,48 @@ def get_editing_dynamics(article_name,min_date,max_date,lang):
     r1 = get_page_content(article_name,datetime.datetime(2001,1,1),max_date,lang)
     r2 = get_page_content(talk_dict[lang]+article_name,datetime.datetime(2001,1,1),max_date,lang)
     
-    ts1 = revision_counter(r1.values(),min_date,max_date)
+    r1 = adjacency_calcs(r1.values())
+    
+    ts1 = revision_counter(r1,min_date,max_date)
     ts2 = revision_counter(r2.values(),min_date,max_date)
-    ts3 = pageview_counter(article_name,lang,min_date,max_date)
-    ts4 = size_counter(r1.values(),min_date,max_date)
-    ts5 = link_counter(r1.values(),min_date,max_date)
-    ts6 = word_counter(r1.values(),min_date,max_date)
+    ts3 = user_counter(r1,min_date,max_date)
+    ts4 = size_counter(r1,min_date,max_date)
+    ts5 = link_counter(r1,min_date,max_date)
+    ts6 = word_counter(r1,min_date,max_date)
     
     ts1_name = u"Article"
     ts2_name = u"Talk"
-    ts3_name = u"Pageviews"
+    ts3_name = u"Users"
     ts4_name = u"Size"
     ts5_name = u"Outlinks"
     ts6_name = u"Words"
     
     dft = pd.concat([ts1,ts2,ts3,ts4,ts5,ts6],axis=1)
     dft.columns = [ts1_name,ts2_name,ts3_name,ts4_name,ts5_name,ts6_name]
+    dft.to_csv(article_name+u'.csv')
+    return dft
+    
+def get_editing_dynamics2(article_name,min_date,max_date,lang):
+    if type(article_name) == str:
+        try:
+            article_name = article_name.decode('utf-8')
+        except UnicodeDecodeError:
+            print 'Cannot decode article name into Unicode using UTF8'
+    
+    r1 = get_page_revisions(article_name,datetime.datetime(2001,1,1),max_date,lang)
+    
+    r1 = adjacency_calcs(r1)
+    
+    ts1 = revision_counter(r1,min_date,max_date)
+    ts3 = user_counter(r1,min_date,max_date)
+    ts4 = size_counter(r1,min_date,max_date)
+    
+    ts1_name = u"Article"
+    ts3_name = u"Users"
+    ts4_name = u"Size"
+    
+    dft = pd.concat([ts1,ts3,ts4],axis=1)
+    dft.columns = [ts1_name,ts3_name,ts4_name]
     dft.to_csv(article_name+u'.csv')
     return dft
 
